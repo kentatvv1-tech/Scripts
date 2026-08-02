@@ -20,7 +20,7 @@ local SupportedGames = {
     ["7449423635"] = "Blox Fruits",
     
     -- Murder Mystery 2
-    ["142823684"] = "Murder Mystery 2"
+    ["142823291"] = "Murder Mystery 2"
 }
 
 -- // UI Creation
