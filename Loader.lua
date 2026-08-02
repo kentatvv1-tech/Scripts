@@ -142,6 +142,16 @@ TweenService:Create(Logo, tweenInfoPulse, {Size = UDim2.new(0, 110, 0, 110)}):Pl
 -- // Game Checking Logic
 local GameName = SupportedGames[tostring(PlaceId)]
 
+-- Fallback Game Detection (in case of executor PlaceId bug or copied game)
+if not GameName then
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Remotes") and rs.Remotes:FindFirstChild("CommF_") then
+        GameName = "Blox Fruits"
+    elseif workspace:FindFirstChild("Normal") and workspace:FindFirstChild("Lobby") and rs:FindFirstChild("Trade") then
+        GameName = "Murder Mystery 2"
+    end
+end
+
 if GameName then
     Status.Text = "Game Found: " .. GameName
     -- Simulate Loading
@@ -177,15 +187,19 @@ if GameName then
     
     -- // Execute Script
     if GameName == "Blox Fruits" then
-        -- Execute the main script
-        -- IMPORTANT: The user must replace this link with their actual script link
-        pcall(function()
+        local success, err = pcall(function()
             loadstring(game:HttpGet(Config.BFTargetScript))()
         end)
+        if not success then
+            warn("[Singularity Loader] ⚠️ Blox Fruits Script Error: " .. tostring(err))
+        end
     elseif GameName == "Murder Mystery 2" then
-        pcall(function()
+        local success, err = pcall(function()
             loadstring(game:HttpGet(Config.MM2TargetScript))()
         end)
+        if not success then
+            warn("[Singularity Loader] ⚠️ Murder Mystery 2 Script Error: " .. tostring(err))
+        end
     end
 else
     -- Game not supported
