@@ -189,7 +189,7 @@ if GameName then
     end
 else
     -- Game not supported
-    Status.Text = "Game Not Supported!"
+    Status.Text = "Game Not Supported! ID: " .. tostring(PlaceId)
     Status.TextColor3 = Color3.fromRGB(255, 50, 50)
     TweenService:Create(LoadingBarFill, tweenInfoFast, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(255, 50, 50)}):Play()
     
