@@ -1354,7 +1354,9 @@ end })
 -- Teleport ผู้เล่น & แผนที่
 --------------------------------------------------------------------------------
 TPTab:Button({
-    Title = "🌍 วาปไป Lobby (ล็อบบี้หลัก)",
+    Title = "วาปไป Lobby",
+    Desc = "ล็อบบี้หลัก (Main Lobby)",
+    Image = "home",
     Callback = function()
         local lobby = workspace:FindFirstChild("Lobby")
         if lobby and lobby:FindFirstChild("Spawns") then
@@ -1369,7 +1371,9 @@ TPTab:Button({
 })
 
 TPTab:Button({
-    Title = "🎮 วาปไปด่านปัจจุบัน (จุดเกิดสุ่ม)",
+    Title = "วาปไปด่านปัจจุบัน",
+    Desc = "สุ่มจุดเกิดภายในด่านปัจจุบัน (Current Map)",
+    Image = "map",
     Callback = function()
         local normal = workspace:FindFirstChild("Normal")
         if normal and normal:FindFirstChild("Spawns") then
@@ -1384,7 +1388,9 @@ TPTab:Button({
 })
 
 TPTab:Button({
-    Title = "🔪 วาปไปหา Murderer (ฆาตกร)",
+    Title = "วาปไปหา Murderer",
+    Desc = "เทเลพอร์ตไปหาฆาตกร",
+    Image = "swords",
     Callback = function()
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
@@ -1403,7 +1409,9 @@ TPTab:Button({
 })
 
 TPTab:Button({
-    Title = "🔫 วาปไปหา Sheriff (นายอำเภอ)",
+    Title = "วาปไปหา Sheriff",
+    Desc = "เทเลพอร์ตไปหานายอำเภอ",
+    Image = "crosshair",
     Callback = function()
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
@@ -1422,7 +1430,9 @@ TPTab:Button({
 })
 
 TPTab:Button({
-    Title = "🏃 วาปไปหาผู้เล่นอื่นสุ่ม (Innocent/สุ่ม)",
+    Title = "วาปไปหาผู้เล่นสุ่ม",
+    Desc = "เทเลพอร์ตไปหาผู้เล่นคนอื่นแบบสุ่ม (Innocent)",
+    Image = "users",
     Callback = function()
         local availablePlayers = {}
         for _, p in ipairs(Players:GetPlayers()) do
