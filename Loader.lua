@@ -15,12 +15,12 @@ local Config = {
 
 local SupportedGames = {
     -- Blox Fruits
-    [2753915549] = "Blox Fruits",
-    [4442272592] = "Blox Fruits",
-    [7449423635] = "Blox Fruits",
+    ["2753915549"] = "Blox Fruits",
+    ["4442272183"] = "Blox Fruits",
+    ["7449423635"] = "Blox Fruits",
     
     -- Murder Mystery 2
-    [142823291] = "Murder Mystery 2"
+    ["142823684"] = "Murder Mystery 2"
 }
 
 -- // UI Creation
@@ -140,7 +140,7 @@ task.wait(1)
 TweenService:Create(Logo, tweenInfoPulse, {Size = UDim2.new(0, 110, 0, 110)}):Play()
 
 -- // Game Checking Logic
-local GameName = SupportedGames[PlaceId]
+local GameName = SupportedGames[tostring(PlaceId)]
 
 if GameName then
     Status.Text = "Game Found: " .. GameName
