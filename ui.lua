@@ -460,8 +460,16 @@ Gold = {
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Dummy Kawaii"
-ScreenGui.Parent = not game:GetService("RunService"):IsStudio() and game:GetService("CoreGui") or game:GetService("Players").LocalPlayer.PlayerGui
+
+local uiParent = nil
+if not game:GetService("RunService"):IsStudio() then
+	pcall(function() uiParent = gethui and gethui() or game:GetService("CoreGui") end)
+end
+if not uiParent then uiParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end
+
+ScreenGui.Parent = uiParent
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
 
 local U, Tw = game:GetService("UserInputService"), game:GetService("TweenService")
 
