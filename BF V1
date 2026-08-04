@@ -7400,7 +7400,8 @@ local KT_UI_Library = loadstring(game:HttpGet("https://raw.githubusercontent.com
 
 -- Progressive Loading Screen UI
 local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
+local CoreGui = nil
+pcall(function() CoreGui = game:GetService("CoreGui") end)
 
 local UIS = UserInputService or game:GetService("UserInputService")
 local WindowSize = UIS.TouchEnabled and UDim2.fromOffset(700, 650) or UDim2.fromOffset(800, 600)
@@ -10795,10 +10796,12 @@ _G.Rejoin = true
 task.spawn(function()
 	while true do task.wait()
 		if _G.Rejoin then
-			getgenv().rejoin = game:GetService("CoreGui").RobloxPromptGui.promptOverlay.ChildAdded:Connect(function(child)
-				if child.Name == 'ErrorPrompt' and child:FindFirstChild('MessageArea') and child.MessageArea:FindFirstChild("ErrorFrame") then
-					game:GetService("TeleportService"):Teleport(game.PlaceId) 
-				end
+			pcall(function()
+				getgenv().rejoin = game:GetService("CoreGui").RobloxPromptGui.promptOverlay.ChildAdded:Connect(function(child)
+					if child.Name == 'ErrorPrompt' and child:FindFirstChild('MessageArea') and child.MessageArea:FindFirstChild("ErrorFrame") then
+						game:GetService("TeleportService"):Teleport(game.PlaceId) 
+					end
+				end)
 			end)
 		end
 	end
@@ -12244,7 +12247,7 @@ end
 
 if W2 then
 
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Evo Race V2",
 		Value = _G.Auto_Evo_Race_V2,
 		Callback = function(value)
@@ -12326,7 +12329,7 @@ if W2 then
 end
 
 if W2 then
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Bartilo Quest",
 		Value = _G.Auto_Bartilo_Quest,
 		Callback = function(value)
@@ -12460,7 +12463,7 @@ if W2 then
 end
 
 if W2 then
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Rengoku",
 		Value = _G.Auto_Rengoku,
 		Callback = function(value)
@@ -12525,7 +12528,7 @@ if W2 then
 end
 
 if W2 then
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Legendary Sword",
 		Value = _G.Auto_Buy_Legendary_Sword,
 		Callback = function(value)
@@ -12562,7 +12565,7 @@ if W2 then
 		end
 	end)
 
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Buy Enchancement",
 		Value = _G.Auto_Buy_Enchancement,
 		Callback = function(value)
@@ -12590,7 +12593,7 @@ if W2 then
 end
 
 if W3 then	
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Musketeer Hat",
 		Value = _G.Auto_Musketeer_Hat,
 		Callback = function(value)
@@ -12697,7 +12700,7 @@ if W3 then
 end
 
 if W3 then	
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Holy Torch",
 		Value = _G.Auto_Holy_Torch,
 		Callback = function(value)
@@ -12731,7 +12734,7 @@ if W3 then
 	end)
 end
 if W3 then	
-	MisccSection:Toggle({
+	TabItems:Toggle({
 		Title = "Auto Yama Fully",
 		Value = _G.Auto_Yama,
 		Callback = function(value)
@@ -18520,8 +18523,13 @@ function kaituncap()
 	local ImageButton = Instance.new("ImageButton")
 	local RobloxButton = Enum.ButtonStyle.RobloxButton
 	
-	ScreenGui.Parent = game.CoreGui
+	local uiParent = nil
+	pcall(function() uiParent = gethui and gethui() or game:GetService("CoreGui") end)
+	if not uiParent then uiParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end
+	
+	ScreenGui.Parent = uiParent
 	ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	ScreenGui.IgnoreGuiInset = true
 	
 	
 	local cac = require(LocalPlayer.PlayerGui.Main.UIController.Inventory)
