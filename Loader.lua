@@ -1,15 +1,8 @@
 local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local PlaceId = game.PlaceId
-
-local uiParent = nil
-pcall(function()
-    uiParent = (gethui and gethui()) or game:GetService("CoreGui")
-end)
-if not uiParent then
-    uiParent = Players.LocalPlayer:WaitForChild("PlayerGui")
-end
 
 -- // Configuration
 local Config = {
@@ -33,10 +26,15 @@ local SupportedGames = {
 -- // UI Creation
 local LoaderUI = Instance.new("ScreenGui")
 LoaderUI.Name = "SingularityLoader"
-LoaderUI.Parent = uiParent
+if gethui then
+    LoaderUI.Parent = gethui()
+else
+    local success = pcall(function() LoaderUI.Parent = CoreGui end)
+    if not success then
+        LoaderUI.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+    end
+end
 LoaderUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-LoaderUI.IgnoreGuiInset = true
-LoaderUI.DisplayOrder = 999999999
 
 local Blur = Instance.new("BlurEffect")
 Blur.Parent = Lighting
