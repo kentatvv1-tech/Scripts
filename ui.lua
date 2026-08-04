@@ -460,16 +460,8 @@ Gold = {
 
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "Dummy Kawaii"
-
-local uiParent = nil
-if not game:GetService("RunService"):IsStudio() then
-	pcall(function() uiParent = gethui and gethui() or game:GetService("CoreGui") end)
-end
-if not uiParent then uiParent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui") end
-
-ScreenGui.Parent = uiParent
+ScreenGui.Parent = not game:GetService("RunService"):IsStudio() and game:GetService("CoreGui") or game:GetService("Players").LocalPlayer.PlayerGui
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ScreenGui.IgnoreGuiInset = true
 
 local U, Tw = game:GetService("UserInputService"), game:GetService("TweenService")
 
@@ -5340,7 +5332,21 @@ function Library:Window(p)
 
 			addToTheme('Text & Icon', Title_1)
 
-			CloseUIShadow.Size = UDim2.new(0, Title_1.TextBounds.X + 40,0, 40)
+			local btnWidth = Title_1.TextBounds.X + 40
+			if CloseUI.Icon then
+				local IconImg = Instance.new("ImageLabel")
+				IconImg.Name = "Icon"
+				IconImg.Parent = BackgroundCloseUI_1
+				IconImg.BackgroundTransparency = 1
+				IconImg.Position = UDim2.new(0.5, -12, 0.5, -12)
+				IconImg.Size = UDim2.new(0, 24, 0, 24)
+				IconImg.Image = type(CloseUI.Icon) == "number" and "rbxassetid://"..CloseUI.Icon or CloseUI.Icon
+				addToTheme('Text & Icon', IconImg)
+				Title_1.Visible = false
+				btnWidth = 40
+			end
+
+			CloseUIShadow.Size = UDim2.new(0, btnWidth, 0, 40)
 
 			local Click = click(CloseUIShadow)
 			lak(Click, CloseUIShadow)
