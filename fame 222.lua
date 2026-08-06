@@ -18,6 +18,12 @@ getgenv().CrystalFarm_Connections = {}
 getgenv().CrystalFarm_ESP_Objects = {}
 getgenv().CrystalFarm_Blacklist = getgenv().CrystalFarm_Blacklist or {}
 getgenv().GodModeEnabled = getgenv().GodModeEnabled or false
+getgenv().AutoGoHome = getgenv().AutoGoHome or false
+getgenv().NoSwingCooldown = getgenv().NoSwingCooldown or false
+getgenv().AutoDigTerrain = getgenv().AutoDigTerrain or false
+getgenv().DigSpeed = getgenv().DigSpeed or 350
+getgenv().TargetMaterial = getgenv().TargetMaterial or "Volcano Basalt"
+getgenv().DigRadius = getgenv().DigRadius or 30
 
 -- ระบบเบื้องหลัง (God Mode & Player Highlight)
 task.spawn(function()
@@ -45,6 +51,237 @@ task.spawn(function()
                 hl.Parent = char
             end
         end
+    end
+end)
+
+-- Auto Go Home Loop
+task.spawn(function()
+    while getgenv().CrystalFarm_Running do
+        task.wait(1)
+        if getgenv().AutoGoHome then
+            pcall(function()
+                local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+                if remotes and remotes:FindFirstChild("GoHome") then
+                    remotes.GoHome:FireServer("home")
+                end
+            end)
+        end
+    end
+end)
+
+-- Auto Dig Terrain Loop
+task.spawn(function()
+    while getgenv().CrystalFarm_Running do
+        if getgenv().AutoDigTerrain then
+            task.wait()
+            local character = LocalPlayer.Character
+            local hrp = character and character:FindFirstChild("HumanoidRootPart")
+            if hrp and getgenv().DigCenter then
+                local params = RaycastParams.new()
+                params.FilterDescendantsInstances = {Workspace.Terrain}
+                params.FilterType = Enum.RaycastFilterType.Include
+                
+                local center = getgenv().DigCenter
+                local closestPos = nil
+                local shortestDist = math.huge
+                local scanStep = 4
+                local radius = getgenv().DigRadius
+                
+                getgenv().DigBlacklist = getgenv().DigBlacklist or {}
+                getgenv().DigAttemptCounts = getgenv().DigAttemptCounts or {}
+                
+                local checks = 0
+                for x = -radius, radius, scanStep do
+                    for z = -radius, radius, scanStep do
+                        checks = checks + 1
+                        -- ให้หยุดพักให้คอมพิวเตอร์หายใจทุกๆ 150 การสแกน (กันคอมค้างเมื่อปรับรัศมีใหญ่ๆ)
+                        if checks % 150 == 0 then
+                            task.wait()
+                            if not getgenv().AutoDigTerrain or not getgenv().CrystalFarm_Running then break end
+                        end
+                        
+                        if (x*x + z*z) <= (radius * radius) then
+                            local origin = Vector3.new(center.X + x, center.Y + 50, center.Z + z)
+                            local result = Workspace:Raycast(origin, Vector3.new(0, -150, 0), params)
+                            if result and result.Instance == Workspace.Terrain then
+                                local rp = result.Position
+                                local rPos = Vector3.new(math.floor(rp.X/4)*4, math.floor(rp.Y/4)*4, math.floor(rp.Z/4)*4)
+                                local key = tostring(rPos)
+                                
+                                if not getgenv().DigBlacklist[key] then
+                                    local dist = (Vector3.new(rp.X, hrp.Position.Y, rp.Z) - hrp.Position).Magnitude
+                                    if dist < shortestDist then
+                                        shortestDist = dist
+                                        closestPos = rp
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    if not getgenv().AutoDigTerrain or not getgenv().CrystalFarm_Running then break end
+                end
+                
+                local bestCrystal = nil
+                local CrystalsFolder = workspace:FindFirstChild("Crystals")
+                if CrystalsFolder then
+                    for _, crystal in pairs(CrystalsFolder:GetChildren()) do
+                        local prompt = crystal:FindFirstChildWhichIsA("ProximityPrompt", true)
+                        local crystalPart = crystal.PrimaryPart or crystal:FindFirstChildWhichIsA("BasePart")
+                        if prompt and crystalPart then
+                            local price = 0
+                            local ui = crystal:FindFirstChild("CrystalUI", true) or crystal:FindFirstChildWhichIsA("BillboardGui", true)
+                            if ui and ui:FindFirstChild("Frame") and ui.Frame:FindFirstChild("Price") then
+                                local pTxt = string.gsub(ui.Frame.Price.Text, "[%$%,]", "")
+                                pTxt = string.gsub(string.lower(pTxt), "kg", "")
+                                local currStr, currMult = string.match(pTxt, "([%d%.]+)([kmb]*)")
+                                if currStr then
+                                    price = tonumber(currStr) or 0
+                                    if string.find(currMult, "k") then price = price * 1000
+                                    elseif string.find(currMult, "m") then price = price * 1000000
+                                    elseif string.find(currMult, "b") then price = price * 1000000000 end
+                                end
+                            end
+                            
+                            if price >= (getgenv().CrystalFarm_MinPrice or 0) then
+                                local distFromHRP = (crystalPart.Position - hrp.Position).Magnitude
+                                if distFromHRP <= radius then
+                                    bestCrystal = crystal
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                if bestCrystal then
+                    local crystalPart = bestCrystal.PrimaryPart or bestCrystal:FindFirstChildWhichIsA("BasePart")
+                    local flyPos = crystalPart.Position + Vector3.new(0, 3.5, 0)
+                    local distance = (hrp.Position - flyPos).Magnitude
+                    
+                    local bv = hrp:FindFirstChild("AutoDig_BV")
+                    if not bv then
+                        bv = Instance.new("BodyVelocity")
+                        bv.Name = "AutoDig_BV"
+                        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bv.Velocity = Vector3.zero
+                        bv.Parent = hrp
+                    end
+                    
+                    if distance > 10 then
+                        local tweenTime = distance / getgenv().DigSpeed
+                        local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+                        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(flyPos)})
+                        tween:Play()
+                        local t = 0
+                        while tween.PlaybackState == Enum.PlaybackState.Playing and t < 2 do
+                            task.wait()
+                            t = t + 0.015
+                            if not getgenv().AutoDigTerrain or not getgenv().CrystalFarm_Running then break end
+                        end
+                        tween:Cancel()
+                    end
+                    
+                    hrp.Anchored = true
+                    local prompt = bestCrystal:FindFirstChildWhichIsA("ProximityPrompt", true)
+                    if prompt then
+                        fireproximityprompt(prompt, 1)
+                    end
+                    task.wait(0.2)
+                    hrp.Anchored = false
+                elseif closestPos then
+                    local flyPos = closestPos + Vector3.new(0, 4, 0)
+                    local distance = (hrp.Position - flyPos).Magnitude
+                    
+                    local bv = hrp:FindFirstChild("AutoDig_BV")
+                    if not bv then
+                        bv = Instance.new("BodyVelocity")
+                        bv.Name = "AutoDig_BV"
+                        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bv.Velocity = Vector3.zero
+                        bv.Parent = hrp
+                    end
+                    
+                    -- บินไปหาเมื่ออยู่ไกลกว่า 10 studs (ถ้าน้อยกว่านั้นแปลว่าอยู่ในระยะที่เอื้อมถึง จะได้ขุดรัวๆ ไม่เสียเวลาบิน)
+                    if distance > 10 then
+                        local tweenTime = distance / getgenv().DigSpeed
+                        local tweenInfo = TweenInfo.new(tweenTime, Enum.EasingStyle.Linear)
+                        local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(flyPos)})
+                        tween:Play()
+                        local t = 0
+                        while tween.PlaybackState == Enum.PlaybackState.Playing and t < 2 do
+                            task.wait()
+                            t = t + 0.015
+                            if not getgenv().AutoDigTerrain or not getgenv().CrystalFarm_Running then break end
+                        end
+                        tween:Cancel()
+                    end
+                    
+                    if getgenv().AutoDigTerrain and getgenv().CrystalFarm_Running then
+                        local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+                        if remotes and remotes:FindFirstChild("DigRequest") then
+                            local tool = character:FindFirstChildOfClass("Tool")
+                            if tool then
+                                -- ระเบิดหลุมใหญ่ใน 1 ที โดยการส่งคำสั่งขุดจุดรอบๆ ไปพร้อมกัน
+                                remotes.DigRequest:FireServer(tool.Name, closestPos)
+                                remotes.DigRequest:FireServer(tool.Name, closestPos + Vector3.new(4, 0, 0))
+                                remotes.DigRequest:FireServer(tool.Name, closestPos + Vector3.new(-4, 0, 0))
+                                remotes.DigRequest:FireServer(tool.Name, closestPos + Vector3.new(0, 0, 4))
+                                remotes.DigRequest:FireServer(tool.Name, closestPos + Vector3.new(0, 0, -4))
+                                remotes.DigRequest:FireServer(tool.Name, closestPos + Vector3.new(0, -4, 0))
+                            end
+                            
+                            local rPos = Vector3.new(math.floor(closestPos.X/4)*4, math.floor(closestPos.Y/4)*4, math.floor(closestPos.Z/4)*4)
+                            local key = tostring(rPos)
+                            getgenv().DigAttemptCounts[key] = (getgenv().DigAttemptCounts[key] or 0) + 1
+                            
+                            -- ถ้าพยายามขุดที่เดิม 50 ครั้ง (สแปมรัวๆ ประมาณ 1 วิ) แล้วยังอยู่ แสดงว่าเป็นหินที่ขุดไม่ได้
+                            if getgenv().DigAttemptCounts[key] >= 50 then
+                                getgenv().DigBlacklist[key] = true
+                            end
+                        end
+                        -- ไม่มี Cooldown แล้ว ทำให้มันสแปมขุดรัวๆ ได้เลย
+                    end
+                else
+                    task.wait(1)
+                end
+            else
+                task.wait(1)
+            end
+        else
+            task.wait(0.5)
+        end
+    end
+end)
+
+-- No Animation (Fast Attack / No Cooldown)
+task.spawn(function()
+    while true do
+        task.wait()
+        pcall(function()
+            local char = LocalPlayer.Character
+            if char then
+                if getgenv().CrystalFarm_Running and (getgenv().AutoFarm or getgenv().AutoDigTerrain) then
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        local animator = hum:FindFirstChildOfClass("Animator") or hum
+                        for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+                            local name = track.Name:lower()
+                            -- ข้ามอนิเมชั่นการโจมตี/ขุด ทำให้เล่นจบในพริบตา
+                            if name:find("swing") or name:find("hit") or name:find("mine") or name:find("dig") or name:find("attack") or name:find("tool") then
+                                track:AdjustSpeed(100) 
+                            end
+                        end
+                    end
+                end
+                
+                if getgenv().NoSwingCooldown then
+                    local tool = char:FindFirstChildOfClass("Tool")
+                    if tool and not tool:GetAttribute("NoSwingCooldown") then
+                        tool:SetAttribute("NoSwingCooldown", true)
+                    end
+                end
+            end
+        end)
     end
 end)
 
@@ -124,6 +361,20 @@ getgenv().CrystalFarm_Disconnect = function()
         getgenv().CrystalFarm_StopGui = nil
     end
     
+    if getgenv().DigZoneVisual then
+        getgenv().DigZoneVisual:Destroy()
+        getgenv().DigZoneVisual = nil
+    end
+    
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local bv = hrp:FindFirstChild("AutoDig_BV")
+            if bv then bv:Destroy() end
+        end
+    end
+    
     local cg = game:GetService("CoreGui")
     local pg = LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui")
     if cg and cg:FindFirstChild("Dummy Kawaii") then
@@ -144,8 +395,8 @@ local UIS = game:GetService("UserInputService")
 local WindowSize = UIS.TouchEnabled and UDim2.fromOffset(550, 550) or UDim2.fromOffset(570,450)
 
 local Window = Library:Window({
-    Title = "Singularity Hub",
-    Desc = "Auto Farm Script",
+    Title = "Singularity Hub[BATA]",
+    Desc = "Auto Farm Script [BATA]",
     Icon = 115975178132422,
     Theme = "Dark",
     Config = {
@@ -211,6 +462,88 @@ MainTab:Toggle({
     Value = getgenv().GodModeEnabled,
     Callback = function(val)
         getgenv().GodModeEnabled = val
+    end
+})
+
+MainTab:Toggle({
+    Title = "No Swing Cooldown",
+    Desc = "Removes cooldown for manual tool mining",
+    Value = getgenv().NoSwingCooldown,
+    Callback = function(val)
+        getgenv().NoSwingCooldown = val
+    end
+})
+
+MainTab:Toggle({
+    Title = "Auto Go Home",
+    Desc = "Automatically teleport to home",
+    Value = getgenv().AutoGoHome,
+    Callback = function(val)
+        getgenv().AutoGoHome = val
+    end
+})
+
+MainTab:Button({
+    Title = "Teleport Home",
+    Desc = "Teleports you to home base",
+    Callback = function()
+        pcall(function()
+            local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+            if remotes and remotes:FindFirstChild("GoHome") then
+                remotes.GoHome:FireServer("home")
+            end
+        end)
+    end
+})
+
+MainTab:Toggle({
+    Title = "Auto Dig Terrain",
+    Desc = "Digs terrain in a specified radius (Sets zone at current pos)",
+    Value = getgenv().AutoDigTerrain,
+    Callback = function(val)
+        getgenv().AutoDigTerrain = val
+        if val then
+            local char = LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                getgenv().DigCenter = hrp.Position
+                getgenv().DigBlacklist = {}
+                getgenv().DigAttemptCounts = {}
+                if getgenv().DigZoneVisual then getgenv().DigZoneVisual:Destroy() end
+                getgenv().DigZoneVisual = nil
+                -- เอาระบบสร้างพาร์ทวงกลมบอกอาณาเขตออก เพื่อลดอาการกระตุก
+            end
+        else
+            if getgenv().DigZoneVisual then
+                getgenv().DigZoneVisual:Destroy()
+                getgenv().DigZoneVisual = nil
+            end
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local bv = hrp:FindFirstChild("AutoDig_BV")
+                if bv then bv:Destroy() end
+                
+                -- รีเซ็ตความเร็วเผื่อค้าง
+                hrp.Velocity = Vector3.zero
+                hrp.RotVelocity = Vector3.zero
+            end
+        end
+    end
+})
+
+MainTab:Textbox({
+    Title = "Dig Target Material",
+    Value = getgenv().TargetMaterial,
+    Callback = function(val)
+        getgenv().TargetMaterial = val
+    end
+})
+
+MainTab:Textbox({
+    Title = "Dig Radius",
+    Value = tostring(getgenv().DigRadius),
+    Callback = function(val)
+        getgenv().DigRadius = tonumber(val) or 30
     end
 })
 
@@ -424,7 +757,7 @@ getgenv().AutoFarm = true
 
 -- [ ความเร็วในการบิน ] 
 -- ปรับตัวเลขตรงนี้ได้เลย (ยิ่งเยอะยิ่งบินเร็ว แต่ระวังถ้าเร็วไปอาจจะทำให้เกมบัคหรือค้างได้)
-getgenv().GhostFlySpeed = 500 
+getgenv().GhostFlySpeed = 200
 
 local teleportDelay = 0.1 -- หน่วงเวลาหลังจากบินถึงหิน
 local ESP_Color = Color3.fromRGB(0, 255, 128) 
@@ -688,9 +1021,12 @@ task.spawn(function()
                                         task.wait(0.5)
                                         local upgradeBuy = remotes:FindFirstChild("UpgradeBuy")
                                         if upgradeBuy then
-                                            upgradeBuy:FireServer("Air", 1)
-                                            task.wait(0.2)
-                                            upgradeBuy:FireServer("Weight", 1)
+                                            -- สแปมส่งคำสั่งอัพเกรดรัวๆ เพื่อให้มันอัพจนกว่าเงินจะหมดหรือตัน
+                                            for i = 1, 35 do
+                                                upgradeBuy:FireServer("Weight", 1)
+                                                upgradeBuy:FireServer("Air", 1)
+                                                task.wait(0.05)
+                                            end
                                         end
                                         task.wait(0.5)
                                     end
