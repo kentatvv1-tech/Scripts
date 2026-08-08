@@ -298,41 +298,14 @@ end)
 
 -- // Auto Grab
 task.spawn(function()
-    while task.wait() do if not getgenv().LaundryFarmRunning then break end
-        if getgenv().AutoGrab and getgenv().ActionState == "Grabbing" then
+    while task.wait(0.1) do
+        if getgenv().AutoGrab then
             pcall(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
-                    local char = LocalPlayer.Character
-                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-                    if not hrp then return end
-                    
-                    local clothesCount = 0
                     for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
-                        if getgenv().AutoGrab and getgenv().ActionState == "Grabbing" and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
-                            if IsClothAllowed(v) then
-                                local cPos = v:GetPivot().Position
-                                if (hrp.Position - cPos).Magnitude < 60 then
-                                    if firetouchinterest then
-                                        if v:IsA("BasePart") then
-                                            firetouchinterest(hrp, v, 0)
-                                            firetouchinterest(hrp, v, 1)
-                                        elseif v:FindFirstChildWhichIsA("BasePart") then
-                                            local part = v:FindFirstChildWhichIsA("BasePart")
-                                            firetouchinterest(hrp, part, 0)
-                                            firetouchinterest(hrp, part, 1)
-                                        end
-                                    end
-                                    Events.GrabClothing:FireServer(v)
-                                    clothesCount = clothesCount + 1
-                                    
-                                    if clothesCount >= 5 then
-                                        task.wait(0.1)
-                                        clothesCount = 0
-                                    end
-                                end
-                            end
-                        else
-                            break
+                        if getgenv().AutoGrab and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
+                            Events.GrabClothing:FireServer(v)
+                            task.wait(0.05)
                         end
                     end
                 end
@@ -427,16 +400,33 @@ local function GetRequiredClothes()
     pcall(function()
         local plot = GetMyPlot()
         if plot and plot:FindFirstChild("WashingMachines") then
-            for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
+            local machines = plot.WashingMachines:GetChildren()
+            local hasPartial = false
+            
+            -- หาว่ามีตู้ไหนที่ "ไม่เต็มแต่มีผ้าอยู่บ้าง" หรือไม่ ถ้ามีให้คำนวณจำนวนที่ขาดไปเป๊ะๆ
+            for _, machine in ipairs(machines) do
                 if machine:FindFirstChild("Config") then
                     local maxCap = WashingMachinesInfo[machine.Name].Capacity
                     local currentCap = machine.Config.Capacity.Value
                     local cycleFinished = machine.Config.CycleFinished.Value
-                    
-                    if cycleFinished then
-                        required = required + maxCap
-                    elseif currentCap < maxCap then
+                    if not cycleFinished and currentCap > 0 and currentCap < maxCap then
+                        hasPartial = true
                         required = required + (maxCap - currentCap)
+                    end
+                end
+            end
+            
+            -- ถ้าไม่มีตู้ที่ไม่เต็ม (ตู้ว่างทั้งหมด) ให้รวบรวมโควต้าของทุกตู้รวมกัน เพื่อโกยทีเดียว
+            if not hasPartial then
+                for _, machine in ipairs(machines) do
+                    if machine:FindFirstChild("Config") then
+                        local maxCap = WashingMachinesInfo[machine.Name].Capacity
+                        local currentCap = machine.Config.Capacity.Value
+                        local cycleFinished = machine.Config.CycleFinished.Value
+                        
+                        if cycleFinished or currentCap == 0 then
+                            required = required + maxCap
+                        end
                     end
                 end
             end
@@ -475,23 +465,6 @@ local function GetBackpackStatus()
     
     local requiredClothes = GetRequiredClothes()
     
-    local hasPartialMachine = false
-    pcall(function()
-        local plot = GetMyPlot()
-        if plot and plot:FindFirstChild("WashingMachines") then
-            for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
-                if machine:FindFirstChild("Config") then
-                    local maxCap = WashingMachinesInfo[machine.Name].Capacity
-                    local currentCap = machine.Config.Capacity.Value
-                    if currentCap > 0 and currentCap < maxCap and not machine.Config.CycleFinished.Value then
-                        hasPartialMachine = true
-                        break
-                    end
-                end
-            end
-        end
-    end)
-    
     if currentAmount == 0 then
         getgenv().ActionState = "Grabbing"
         getgenv().LastGrabAmount = 0
@@ -508,7 +481,7 @@ local function GetBackpackStatus()
 
     if currentAmount == 0 then
         getgenv().ActionState = "Grabbing"
-    elseif currentAmount >= maxAmount or (requiredClothes > 0 and currentAmount >= requiredClothes) or (hasPartialMachine and currentAmount > 0) or (not getgenv().AutoGrab and currentAmount > 0) or (isStuckGrabbing and currentAmount > 0) then
+    elseif currentAmount >= maxAmount or (requiredClothes > 0 and currentAmount >= requiredClothes) or (not getgenv().AutoGrab and currentAmount > 0) or (isStuckGrabbing and currentAmount > 0) then
         getgenv().ActionState = "Emptying"
     end
     if not getgenv().ActionState then getgenv().ActionState = "Grabbing" end
@@ -560,7 +533,7 @@ task.spawn(function()
                                 local char = LocalPlayer.Character
                                 if char and char:FindFirstChild("HumanoidRootPart") and machine:FindFirstChild("MAIN") then
                                     local hrp = char.HumanoidRootPart
-                                    local targetCFrame = machine.MAIN.CFrame * CFrame.new(0, 3, 7)
+                                    local targetCFrame = machine.MAIN.CFrame * CFrame.new(0, 3, 10)
                                     local dist = (hrp.Position - targetCFrame.Position).Magnitude
                                     
                                     if dist > 5 then
