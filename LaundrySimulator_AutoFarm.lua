@@ -31,6 +31,7 @@ getgenv().AutoChallenge = false
 getgenv().IsSelling = false
 getgenv().IsWashing = false
 getgenv().Noclip = false
+getgenv().FlySpeed = 60
 getgenv().FilterNormal = true
 getgenv().FilterGold = true
 getgenv().FilterPurple = true
@@ -55,6 +56,17 @@ PlayerTab:Toggle({
     Callback = function(val) 
         getgenv().Noclip = val 
     end 
+})
+
+PlayerTab:Slider({
+    Title = "Fly Speed (ความเร็วบิน)",
+    Desc = "ปรับความเร็วการบิน (ปกติ 60)",
+    Min = 10,
+    Max = 300,
+    Default = 60,
+    Callback = function(val)
+        getgenv().FlySpeed = val
+    end
 })
 
 FarmTab:Toggle({ 
@@ -245,6 +257,17 @@ task.spawn(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
                     for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
                         if getgenv().AutoGrab and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
+                            if firetouchinterest and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                                local hrp = LocalPlayer.Character.HumanoidRootPart
+                                if v:IsA("BasePart") then
+                                    firetouchinterest(hrp, v, 0)
+                                    firetouchinterest(hrp, v, 1)
+                                elseif v:FindFirstChildWhichIsA("BasePart") then
+                                    local part = v:FindFirstChildWhichIsA("BasePart")
+                                    firetouchinterest(hrp, part, 0)
+                                    firetouchinterest(hrp, part, 1)
+                                end
+                            end
                             Events.GrabClothing:FireServer(v)
                             task.wait(0.05)
                         end
@@ -317,7 +340,7 @@ local function FlyToTarget(targetPosition)
     
     while char and hrp.Parent and (hrp.Position - targetPosition).Magnitude > 5 and currentFlightId == myFlightId do
         local dir = (targetPosition - hrp.Position).Unit
-        flyVelocity.Velocity = dir * 60
+        flyVelocity.Velocity = dir * (getgenv().FlySpeed or 60)
         flyGyro.CFrame = CFrame.new(hrp.Position, targetPosition)
         task.wait()
     end
@@ -369,6 +392,13 @@ task.spawn(function()
                                         task.wait(0.2)
                                     end
                                     
+                                    if needUnload or needLoad then
+                                        if firetouchinterest then
+                                            firetouchinterest(hrp, machine.MAIN, 0)
+                                            firetouchinterest(hrp, machine.MAIN, 1)
+                                        end
+                                    end
+
                                     if needUnload then
                                         Events.UnloadWashingMachine:FireServer(machine)
                                         task.wait(0.2)
@@ -435,19 +465,26 @@ task.spawn(function()
                         getgenv().IsSelling = true
                         local char = LocalPlayer.Character
                         local chute = workspace:FindFirstChild("_FinishChute")
-                        if char and char:FindFirstChild("HumanoidRootPart") and chute and chute:FindFirstChild("Handle") then
-                            local hrp = char.HumanoidRootPart
-                            local targetCFrame = chute.Handle.CFrame * CFrame.new(0, 3, 0)
-                            local dist = (hrp.Position - targetCFrame.Position).Magnitude
-                            
-                            -- วาปไปหา (Ghost Fly)
-                            FlyToTarget(targetCFrame.Position)
-                            task.wait(0.2)
-                            
-                            local dropEvent = Events:FindFirstChild("DropClothesInChute")
-                            if dropEvent then
-                                dropEvent:FireServer()
-                                task.wait(0.5)
+                        if char and char:FindFirstChild("HumanoidRootPart") and chute then
+                            local targetPart = chute:IsA("BasePart") and chute or chute:FindFirstChildWhichIsA("BasePart")
+                            if targetPart then
+                                local hrp = char.HumanoidRootPart
+                                local targetCFrame = targetPart.CFrame * CFrame.new(0, 3, 0)
+                                
+                                -- วาปไปหา (Ghost Fly)
+                                FlyToTarget(targetCFrame.Position)
+                                task.wait(0.2)
+                                
+                                if firetouchinterest then
+                                    firetouchinterest(hrp, targetPart, 0)
+                                    firetouchinterest(hrp, targetPart, 1)
+                                end
+                                
+                                local dropEvent = Events:FindFirstChild("DropClothesInChute")
+                                if dropEvent then
+                                    dropEvent:FireServer()
+                                    task.wait(0.5)
+                                end
                             end
                         end
                         getgenv().IsSelling = false
