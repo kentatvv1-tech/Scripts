@@ -1,3 +1,9 @@
+if getgenv().KT_LaundrySimulator_Loaded then
+    warn("Laundry Simulator Auto Farm is already running!")
+    return
+end
+getgenv().KT_LaundrySimulator_Loaded = true
+
 local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/kentatvv1-tech/UI-BYKENTA/refs/heads/main/ui.lua"))()
 local UIS = game:GetService("UserInputService")
 local WindowSize = UIS.TouchEnabled and UDim2.fromOffset(550, 550) or UDim2.fromOffset(570,450)
@@ -28,7 +34,6 @@ end
 getgenv().LaundryFarmRunning = true
 
 getgenv().AutoSell = false
-getgenv().AutoSellDirty = false
 getgenv().AutoSpin = false
 getgenv().AutoBuyMachine = false
 getgenv().AutoEquipMachine = false
@@ -39,6 +44,10 @@ getgenv().IsWashing = false
 getgenv().Noclip = true
 getgenv().CameraNoclip = true
 getgenv().FlySpeed = 60
+getgenv().AntiAFK = true
+getgenv().ClothESP = false
+getgenv().ESPNormal = true
+getgenv().ESPRare = true
 getgenv().FilterNormal = true
 getgenv().FilterGold = true
 getgenv().FilterPurple = true
@@ -69,6 +78,15 @@ PlayerTab:Toggle({
     Value = getgenv().Noclip, 
     Callback = function(val) 
         getgenv().Noclip = val 
+    end
+})
+
+PlayerTab:Toggle({ 
+    Title = "Anti AFK (กันหลุดจากเกม)", 
+    Image = "shield", 
+    Value = getgenv().AntiAFK, 
+    Callback = function(val) 
+        getgenv().AntiAFK = val 
     end 
 })
 
@@ -124,14 +142,6 @@ FarmTab:Toggle({
     end 
 })
 
-FarmTab:Toggle({ 
-    Title = "Auto Sell Dirty (ขายผ้าสกปรกออโต้)", 
-    Image = "coins", 
-    Value = getgenv().AutoSellDirty, 
-    Callback = function(val) 
-        getgenv().AutoSellDirty = val 
-    end 
-})
 
 FarmTab:Toggle({ 
     Title = "Auto Spin Wheel (หมุนวงล้อออโต้)", 
@@ -197,6 +207,42 @@ FilterTab:Toggle({ Title = "Sweater (สเวตเตอร์)", Image = "tar
 FilterTab:Toggle({ Title = "Towel (ผ้าเช็ดตัว)", Image = "target", Value = getgenv().FilterTowel, Callback = function(v) getgenv().FilterTowel = v end })
 FilterTab:Toggle({ Title = "Underpants (กางเกงใน)", Image = "target", Value = getgenv().FilterUnderpants, Callback = function(v) getgenv().FilterUnderpants = v end })
 
+local ESPTab = Window:Tab({ Title = "ESP (มองทะลุ)", Icon = "eye" })
+
+ESPTab:Toggle({ 
+    Title = "ESP Clothes (เปิด/ปิด ESP ทั้งหมด)", 
+    Image = "eye", 
+    Value = getgenv().ClothESP, 
+    Callback = function(val) 
+        getgenv().ClothESP = val 
+        if not val then
+            for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
+                if v:FindFirstChild("LaundryESP") then
+                    v.LaundryESP:Destroy()
+                end
+            end
+        end
+    end 
+})
+
+ESPTab:Toggle({ 
+    Title = "Show Normal (แสดงผ้าธรรมดา)", 
+    Image = "eye-off", 
+    Value = getgenv().ESPNormal, 
+    Callback = function(val) 
+        getgenv().ESPNormal = val 
+    end 
+})
+
+ESPTab:Toggle({ 
+    Title = "Show Rare (แสดงผ้ามีระดับ)", 
+    Image = "star", 
+    Value = getgenv().ESPRare, 
+    Callback = function(val) 
+        getgenv().ESPRare = val 
+    end 
+})
+
 local TeleportTab = Window:Tab({ Title = "Teleports", Icon = "map" })
 
 TeleportTab:Button({
@@ -216,6 +262,15 @@ TeleportTab:Button({
 local Events = game:GetService("ReplicatedStorage"):WaitForChild("Events")
 local LocalPlayer = game.Players.LocalPlayer
 local WashingMachinesInfo = require(game:GetService("ReplicatedStorage"):WaitForChild("Modules"):WaitForChild("WashingMachines"))
+
+-- // Anti AFK (กันหลุดจากเกมเวลาฟาร์มนานๆ)
+local VirtualUser = game:GetService("VirtualUser")
+LocalPlayer.Idled:Connect(function()
+    if getgenv().AntiAFK then
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end)
 
 local function IsClothAllowed(cloth)
     -- ตรวจสอบประเภทของเสื้อผ้า
@@ -297,19 +352,58 @@ task.spawn(function()
 end)
 
 -- // Auto Grab
+local clothingFolder = workspace:WaitForChild("Debris"):WaitForChild("Clothing")
+local lastGrabRequest = setmetatable({}, { __mode = "k" })
+
+-- A request is retried only if the item still exists after this delay.
+-- This prevents duplicate FireServer calls while replication/server processing is slow.
+local RETRY_DELAY = 0.45
+-- Keep the original maximum pickup throughput (20 requests/second) for new clothes.
+local REQUEST_INTERVAL = 0.05
+local IDLE_INTERVAL = 0.10
+
 task.spawn(function()
-    while task.wait(0.1) do
-        if getgenv().AutoGrab then
-            pcall(function()
-                if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
-                    for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
-                        if getgenv().AutoGrab and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
-                            Events.GrabClothing:FireServer(v)
-                            task.wait(0.05)
-                        end
-                    end
+    while getgenv().LaundryFarmRunning do
+        if not getgenv().AutoGrab then
+            task.wait(IDLE_INTERVAL)
+            continue
+        end
+
+        local grabbedThisPass = false
+        local ok, err = pcall(function()
+            local backpackAmount = LocalPlayer.NonSaveVars.BackpackAmount.Value
+            local basketSize = LocalPlayer.NonSaveVars.BasketSize.Value
+            if backpackAmount >= basketSize then
+                return
+            end
+
+            for _, cloth in ipairs(clothingFolder:GetChildren()) do
+                if not getgenv().LaundryFarmRunning or not getgenv().AutoGrab then
+                    break
                 end
-            end)
+
+                -- Stop immediately once the local basket reaches capacity.
+                if LocalPlayer.NonSaveVars.BackpackAmount.Value >= LocalPlayer.NonSaveVars.BasketSize.Value then
+                    break
+                end
+
+                local now = os.clock()
+                local lastRequestAt = lastGrabRequest[cloth]
+                if cloth.Parent == clothingFolder and (not lastRequestAt or now - lastRequestAt >= RETRY_DELAY) then
+                    lastGrabRequest[cloth] = now
+                    Events.GrabClothing:FireServer(cloth)
+                    grabbedThisPass = true
+                    task.wait(REQUEST_INTERVAL)
+                end
+            end
+        end)
+
+        if not ok then
+            -- Optional: Add a custom DebugLog function if missing, or use warn
+            if DebugLog then DebugLog("AutoGrab error: " .. tostring(err)) else warn("AutoGrab error: " .. tostring(err)) end
+            task.wait(0.25)
+        elseif not grabbedThisPass then
+            task.wait(IDLE_INTERVAL)
         end
     end
 end)
@@ -569,12 +663,11 @@ end)
 -- // Auto Sell (Drop Clothes In Chute)
 task.spawn(function()
     while task.wait() do if not getgenv().LaundryFarmRunning then break end
-        if getgenv().AutoSell or getgenv().AutoSellDirty then
+        if getgenv().AutoSell then
             pcall(function()
                 local amount, maxAmount, basketStatus = GetBackpackStatus()
                 if amount > 0 then
                     local isClean = (basketStatus == "Clean")
-                    local dumpDirty = false
                     local shouldSell = false
                     
                     if isClean then
@@ -596,15 +689,10 @@ task.spawn(function()
                             end
                         end
                     else
-                        if getgenv().AutoSellDirty then
-                            dumpDirty = true
-                            DebugLog("AutoSell: ขายเป็นผ้าสกปรก (เพราะตั้งค่า AutoSellDirty = true)")
-                        else
-                            DebugLog("AutoSell: กระเป๋ามีผ้าสกปรกอยู่ จะไม่บินไปขาย (รอเครื่องซักผ้า)")
-                        end
+                        DebugLog("AutoSell: กระเป๋ามีผ้าสกปรกอยู่ จะไม่บินไปขาย (รอเครื่องซักผ้า)")
                     end
                     
-                    if (isClean and shouldSell) or dumpDirty then
+                    if isClean and shouldSell then
                         DebugLog("AutoSell: กำลังบินไปขายผ้า")
                         getgenv().IsSelling = true
                         local char = LocalPlayer.Character
@@ -818,6 +906,85 @@ task.spawn(function()
                     end
                 end
             end)
+        end
+    end
+end)
+
+-- // ESP Loop
+task.spawn(function()
+    while task.wait(0.5) do if not getgenv().LaundryFarmRunning then break end
+        if getgenv().ClothESP then
+            pcall(function()
+                for _, cloth in ipairs(workspace.Debris.Clothing:GetChildren()) do
+                    local specialTag = cloth:FindFirstChild("SpecialTag")
+                    local isRare = specialTag ~= nil
+                    
+                    local shouldShow = true
+                    if isRare and not getgenv().ESPRare then shouldShow = false end
+                    if not isRare and not getgenv().ESPNormal then shouldShow = false end
+                    
+                    local existingESP = cloth:FindFirstChild("LaundryESP")
+                    
+                    if shouldShow then
+                        if not existingESP then
+                            local text = "Normal " .. cloth.Name
+                            local color = Color3.fromRGB(255, 255, 255) -- White
+                            
+                            if isRare then
+                                local lvl = specialTag.Value
+                                text = "Rare " .. cloth.Name .. " (Lv." .. tostring(lvl) .. ")"
+                                
+                                local RarityColors = {
+                                    Color3.fromRGB(150, 255, 150), -- 1 Green
+                                    Color3.fromRGB(100, 200, 255), -- 2 Blue
+                                    Color3.fromRGB(200, 100, 255), -- 3 Purple
+                                    Color3.fromRGB(255, 100, 100), -- 4 Red
+                                    Color3.fromRGB(255, 215, 0),   -- 5 Gold
+                                    Color3.fromRGB(255, 150, 0),   -- 6 Orange
+                                    Color3.fromRGB(255, 50, 200),  -- 7 Pink
+                                }
+                                local num = tonumber(lvl)
+                                if num then
+                                    local index = ((num - 1) % #RarityColors) + 1
+                                    color = RarityColors[index]
+                                else
+                                    color = Color3.fromRGB(255, 215, 0)
+                                end
+                            end
+                            
+                            local billboard = Instance.new("BillboardGui")
+                            billboard.Name = "LaundryESP"
+                            billboard.Adornee = cloth
+                            billboard.Size = UDim2.new(0, 150, 0, 50)
+                            billboard.StudsOffset = Vector3.new(0, 2, 0)
+                            billboard.AlwaysOnTop = true
+                            
+                            local textLabel = Instance.new("TextLabel")
+                            textLabel.Parent = billboard
+                            textLabel.BackgroundTransparency = 1
+                            textLabel.Size = UDim2.new(1, 0, 1, 0)
+                            textLabel.Text = text
+                            textLabel.TextColor3 = color
+                            textLabel.TextStrokeTransparency = 0
+                            textLabel.TextScaled = true
+                            textLabel.Font = Enum.Font.GothamBold
+                            
+                            billboard.Parent = cloth
+                        end
+                    else
+                        if existingESP then
+                            existingESP:Destroy()
+                        end
+                    end
+                end
+            end)
+        else
+            -- เคลียร์ป้ายเก่าเวลาปิดสวิตช์หลัก
+            for _, cloth in ipairs(workspace.Debris.Clothing:GetChildren()) do
+                if cloth:FindFirstChild("LaundryESP") then
+                    cloth.LaundryESP:Destroy()
+                end
+            end
         end
     end
 end)
