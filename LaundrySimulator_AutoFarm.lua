@@ -38,7 +38,7 @@ getgenv().IsSelling = false
 getgenv().IsWashing = false
 getgenv().Noclip = true
 getgenv().CameraNoclip = true
-getgenv().FlySpeed = 200
+getgenv().FlySpeed = 60
 getgenv().FilterNormal = true
 getgenv().FilterGold = true
 getgenv().FilterPurple = true
@@ -266,6 +266,9 @@ task.spawn(function()
                     local char = LocalPlayer.Character
                     if conveyor and char and char:FindFirstChild("HumanoidRootPart") then
                         local targetPos = conveyor:GetPivot().Position
+                        if conveyor:FindFirstChild("MeshPart") then
+                            targetPos = conveyor.MeshPart.Position
+                        end
                         local dist = (char.HumanoidRootPart.Position - targetPos).Magnitude
                         if dist > 10 then
                             FlyToTarget(targetPos + Vector3.new(0, 5, 0))
@@ -439,9 +442,41 @@ local function GetBackpackStatus()
     end)
     
     local requiredClothes = GetRequiredClothes()
+    
+    local hasPartialMachine = false
+    pcall(function()
+        local plot = GetMyPlot()
+        if plot and plot:FindFirstChild("WashingMachines") then
+            for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
+                if machine:FindFirstChild("Config") then
+                    local maxCap = WashingMachinesInfo[machine.Name].Capacity
+                    local currentCap = machine.Config.Capacity.Value
+                    if currentCap > 0 and currentCap < maxCap and not machine.Config.CycleFinished.Value then
+                        hasPartialMachine = true
+                        break
+                    end
+                end
+            end
+        end
+    end)
+    
     if currentAmount == 0 then
         getgenv().ActionState = "Grabbing"
-    elseif currentAmount >= maxAmount or (requiredClothes > 0 and currentAmount >= requiredClothes) then
+        getgenv().LastGrabAmount = 0
+        getgenv().LastGrabTime = tick()
+    else
+        if not getgenv().LastGrabAmount or currentAmount ~= getgenv().LastGrabAmount then
+            getgenv().LastGrabAmount = currentAmount
+            getgenv().LastGrabTime = tick()
+        end
+    end
+    
+    local timeSinceLastGrab = tick() - (getgenv().LastGrabTime or tick())
+    local isStuckGrabbing = (timeSinceLastGrab > 5)
+
+    if currentAmount == 0 then
+        getgenv().ActionState = "Grabbing"
+    elseif currentAmount >= maxAmount or (requiredClothes > 0 and currentAmount >= requiredClothes) or (hasPartialMachine and currentAmount > 0) or (not getgenv().AutoGrab and currentAmount > 0) or (isStuckGrabbing and currentAmount > 0) then
         getgenv().ActionState = "Emptying"
     end
     if not getgenv().ActionState then getgenv().ActionState = "Grabbing" end
@@ -456,7 +491,24 @@ task.spawn(function()
             pcall(function()
                 local plot = GetMyPlot()
                 if plot and plot:FindFirstChild("WashingMachines") then
-                    for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
+                    local machines = plot.WashingMachines:GetChildren()
+                    
+                    -- จัดลำดับความสำคัญ: เครื่องที่มีผ้าอยู่แล้วแต่ยังไม่เต็ม (เช่น 3/7) ให้ใส่ก่อน เพื่อกันมันตัดรอบทำงาน
+                    table.sort(machines, function(a, b)
+                        local aCap = a:FindFirstChild("Config") and a.Config.Capacity.Value or 0
+                        local bCap = b:FindFirstChild("Config") and b.Config.Capacity.Value or 0
+                        local aMax = a:FindFirstChild("Config") and WashingMachinesInfo[a.Name] and WashingMachinesInfo[a.Name].Capacity or 0
+                        local bMax = b:FindFirstChild("Config") and WashingMachinesInfo[b.Name] and WashingMachinesInfo[b.Name].Capacity or 0
+                        
+                        local aPartial = (aCap > 0 and aCap < aMax and not a.Config.CycleFinished.Value)
+                        local bPartial = (bCap > 0 and bCap < bMax and not b.Config.CycleFinished.Value)
+                        
+                        if aPartial and not bPartial then return true end
+                        if bPartial and not aPartial then return false end
+                        return false
+                    end)
+                    
+                    for _, machine in ipairs(machines) do
                         if machine:FindFirstChild("Config") then
                             local cycleFinished = machine.Config.CycleFinished.Value
                             local amount, maxAmount, basketStatus = GetBackpackStatus()
