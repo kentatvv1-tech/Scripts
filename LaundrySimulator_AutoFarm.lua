@@ -264,14 +264,30 @@ task.spawn(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
                     local conveyor = workspace:FindFirstChild("ConveyorEdge")
                     local char = LocalPlayer.Character
-                    if conveyor and char and char:FindFirstChild("HumanoidRootPart") then
-                        local targetPos = conveyor:GetPivot().Position
-                        if conveyor:FindFirstChild("MeshPart") then
-                            targetPos = conveyor.MeshPart.Position
+                    if char and char:FindFirstChild("HumanoidRootPart") then
+                        local targetPos
+                        if conveyor then
+                            if conveyor:FindFirstChild("MeshPart") and conveyor.MeshPart:IsA("BasePart") then
+                                targetPos = conveyor.MeshPart.Position
+                            elseif conveyor:IsA("Model") or conveyor:IsA("BasePart") then
+                                targetPos = conveyor:GetPivot().Position
+                            end
                         end
-                        local dist = (char.HumanoidRootPart.Position - targetPos).Magnitude
-                        if dist > 10 then
-                            FlyToTarget(targetPos + Vector3.new(0, 5, 0))
+                        
+                        if not targetPos then
+                            for _, v in ipairs(workspace:GetDescendants()) do
+                                if v.Name == "ConveyorEdge" then
+                                    targetPos = v:GetPivot().Position
+                                    break
+                                end
+                            end
+                        end
+
+                        if targetPos then
+                            local dist = (char.HumanoidRootPart.Position - targetPos).Magnitude
+                            if dist > 10 then
+                                FlyToTarget(targetPos + Vector3.new(0, 3, 0))
+                            end
                         end
                     end
                 end
@@ -286,21 +302,37 @@ task.spawn(function()
         if getgenv().AutoGrab and getgenv().ActionState == "Grabbing" then
             pcall(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
+                    local char = LocalPlayer.Character
+                    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                    if not hrp then return end
+                    
+                    local clothesCount = 0
                     for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
-                        if getgenv().AutoGrab and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
-                            if firetouchinterest and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                                local hrp = LocalPlayer.Character.HumanoidRootPart
-                                if v:IsA("BasePart") then
-                                    firetouchinterest(hrp, v, 0)
-                                    firetouchinterest(hrp, v, 1)
-                                elseif v:FindFirstChildWhichIsA("BasePart") then
-                                    local part = v:FindFirstChildWhichIsA("BasePart")
-                                    firetouchinterest(hrp, part, 0)
-                                    firetouchinterest(hrp, part, 1)
+                        if getgenv().AutoGrab and getgenv().ActionState == "Grabbing" and LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
+                            if IsClothAllowed(v) then
+                                local cPos = v:GetPivot().Position
+                                if (hrp.Position - cPos).Magnitude < 60 then
+                                    if firetouchinterest then
+                                        if v:IsA("BasePart") then
+                                            firetouchinterest(hrp, v, 0)
+                                            firetouchinterest(hrp, v, 1)
+                                        elseif v:FindFirstChildWhichIsA("BasePart") then
+                                            local part = v:FindFirstChildWhichIsA("BasePart")
+                                            firetouchinterest(hrp, part, 0)
+                                            firetouchinterest(hrp, part, 1)
+                                        end
+                                    end
+                                    Events.GrabClothing:FireServer(v)
+                                    clothesCount = clothesCount + 1
+                                    
+                                    if clothesCount >= 5 then
+                                        task.wait(0.1)
+                                        clothesCount = 0
+                                    end
                                 end
                             end
-                            Events.GrabClothing:FireServer(v)
-                            task.wait(0.05)
+                        else
+                            break
                         end
                     end
                 end
@@ -528,7 +560,7 @@ task.spawn(function()
                                 local char = LocalPlayer.Character
                                 if char and char:FindFirstChild("HumanoidRootPart") and machine:FindFirstChild("MAIN") then
                                     local hrp = char.HumanoidRootPart
-                                    local targetCFrame = machine.MAIN.CFrame * CFrame.new(0, 3, -4)
+                                    local targetCFrame = machine.MAIN.CFrame * CFrame.new(0, 3, 7)
                                     local dist = (hrp.Position - targetCFrame.Position).Magnitude
                                     
                                     if dist > 5 then
