@@ -21,6 +21,12 @@ local FarmTab = Window:Tab({ Title = "Auto Farm", Icon = "zap" })
 
 getgenv().AutoGrab = false
 getgenv().AutoWash = false
+if getgenv().LaundryFarmRunning then
+    getgenv().LaundryFarmRunning = false
+    task.wait(1) -- รอให้ Loop เก่าๆ หยุดทำงาน
+end
+getgenv().LaundryFarmRunning = true
+
 getgenv().AutoSell = false
 getgenv().AutoSellDirty = false
 getgenv().AutoSpin = false
@@ -30,7 +36,8 @@ getgenv().AutoBuyBasket = false
 getgenv().AutoChallenge = false
 getgenv().IsSelling = false
 getgenv().IsWashing = false
-getgenv().Noclip = false
+getgenv().Noclip = true
+getgenv().CameraNoclip = true
 getgenv().FlySpeed = 60
 getgenv().FilterNormal = true
 getgenv().FilterGold = true
@@ -47,6 +54,13 @@ getgenv().FilterSweater = true
 getgenv().FilterTowel = true
 getgenv().FilterUnderpants = true
 
+getgenv().DebugFarm = false
+local function DebugLog(msg)
+    if getgenv().DebugFarm then
+        print("[AutoFarm Debug] " .. tostring(msg))
+    end
+end
+
 local PlayerTab = Window:Tab({ Title = "Player", Icon = "user" })
 
 PlayerTab:Toggle({ 
@@ -55,6 +69,20 @@ PlayerTab:Toggle({
     Value = getgenv().Noclip, 
     Callback = function(val) 
         getgenv().Noclip = val 
+    end 
+})
+
+PlayerTab:Toggle({ 
+    Title = "Camera Noclip (กล้องทะลุกำแพง)", 
+    Image = "eye", 
+    Value = getgenv().CameraNoclip, 
+    Callback = function(val) 
+        getgenv().CameraNoclip = val
+        if val then
+            game.Players.LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Invisicam
+        else
+            game.Players.LocalPlayer.DevCameraOcclusionMode = Enum.DevCameraOcclusionMode.Zoom
+        end
     end 
 })
 
@@ -230,8 +258,8 @@ end
 
 -- // Auto Standby at ConveyorEdge
 task.spawn(function()
-    while task.wait(0.5) do
-        if getgenv().AutoGrab and not getgenv().IsSelling and not getgenv().IsWashing then
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
+        if getgenv().AutoGrab and not getgenv().IsSelling and not getgenv().IsWashing and getgenv().ActionState == "Grabbing" then
             pcall(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
                     local conveyor = workspace:FindFirstChild("ConveyorEdge")
@@ -251,8 +279,8 @@ end)
 
 -- // Auto Grab
 task.spawn(function()
-    while task.wait(0.1) do
-        if getgenv().AutoGrab then
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
+        if getgenv().AutoGrab and getgenv().ActionState == "Grabbing" then
             pcall(function()
                 if LocalPlayer.NonSaveVars.BackpackAmount.Value < LocalPlayer.NonSaveVars.BasketSize.Value then
                     for _, v in ipairs(workspace.Debris.Clothing:GetChildren()) do
@@ -359,9 +387,71 @@ local function FlyToTarget(targetPosition)
     end
 end
 
+local function GetRequiredClothes()
+    local required = 0
+    pcall(function()
+        local plot = GetMyPlot()
+        if plot and plot:FindFirstChild("WashingMachines") then
+            for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
+                if machine:FindFirstChild("Config") then
+                    local maxCap = WashingMachinesInfo[machine.Name].Capacity
+                    local currentCap = machine.Config.Capacity.Value
+                    local cycleFinished = machine.Config.CycleFinished.Value
+                    
+                    if cycleFinished then
+                        required = required + maxCap
+                    elseif currentCap < maxCap then
+                        required = required + (maxCap - currentCap)
+                    end
+                end
+            end
+        end
+    end)
+    return required
+end
+
+local function GetBackpackStatus()
+    local currentAmount = LocalPlayer.NonSaveVars.BackpackAmount.Value
+    local maxAmount = LocalPlayer.NonSaveVars.BasketSize.Value
+    local status = LocalPlayer.NonSaveVars.BasketStatus.Value
+
+    pcall(function()
+        local gui = LocalPlayer:FindFirstChild("PlayerGui")
+        if gui and gui:FindFirstChild("Info") and gui.Info:FindFirstChild("Frame") and gui.Info.Frame:FindFirstChild("Backpack") then
+            local backpack = gui.Info.Frame.Backpack
+            
+            if backpack:FindFirstChild("Label") then
+                local currentStr, maxStr = string.match(backpack.Label.Text, "(%d+)/(%d+)")
+                if currentStr and maxStr then
+                    currentAmount = tonumber(currentStr)
+                    maxAmount = tonumber(maxStr)
+                end
+            end
+            
+            if backpack:FindFirstChild("Clean") and backpack.Clean.Visible then
+                status = "Clean"
+            elseif backpack:FindFirstChild("Dirty") and backpack.Dirty.Visible then
+                status = "Dirty"
+            elseif backpack:FindFirstChild("Empty") and backpack.Empty.Visible then
+                status = "Empty"
+            end
+        end
+    end)
+    
+    local requiredClothes = GetRequiredClothes()
+    if currentAmount == 0 then
+        getgenv().ActionState = "Grabbing"
+    elseif currentAmount >= maxAmount or (requiredClothes > 0 and currentAmount >= requiredClothes) then
+        getgenv().ActionState = "Emptying"
+    end
+    if not getgenv().ActionState then getgenv().ActionState = "Grabbing" end
+    
+    return currentAmount, maxAmount, status
+end
+
 -- // Auto Wash
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoWash and not getgenv().IsSelling then
             pcall(function()
                 local plot = GetMyPlot()
@@ -369,17 +459,19 @@ task.spawn(function()
                     for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
                         if machine:FindFirstChild("Config") then
                             local cycleFinished = machine.Config.CycleFinished.Value
-                            local basketStatus = LocalPlayer.NonSaveVars.BasketStatus.Value
-                            local amount = LocalPlayer.NonSaveVars.BackpackAmount.Value
-                            local maxAmount = LocalPlayer.NonSaveVars.BasketSize.Value
+                            local amount, maxAmount, basketStatus = GetBackpackStatus()
+                            local isBasketFull = (amount >= maxAmount)
+                            
                             local currentCap = machine.Config.Capacity.Value
                             local maxCap = WashingMachinesInfo[machine.Name].Capacity
                             local isFull = currentCap >= maxCap
                             
                             local needUnload = cycleFinished and (basketStatus == "Clean" or amount == 0) and amount < maxAmount
-                            local needLoad = (not isFull) and (not cycleFinished) and (basketStatus ~= "Clean") and amount > 0
+                            -- เอาใส่ให้หมดค่อยเติม (สถานะ Emptying)
+                            local needLoad = (not isFull) and (not cycleFinished) and (basketStatus ~= "Clean") and getgenv().ActionState == "Emptying" and amount > 0
                             
                             if needUnload or needLoad then
+                                DebugLog("AutoWash: เครื่อง " .. machine.Name .. (needUnload and " เอาผ้าออก" or "") .. (needLoad and " เอาผ้าเข้า" or ""))
                                 getgenv().IsWashing = true
                                 local char = LocalPlayer.Character
                                 if char and char:FindFirstChild("HumanoidRootPart") and machine:FindFirstChild("MAIN") then
@@ -419,16 +511,17 @@ end)
 
 -- // Auto Sell (Drop Clothes In Chute)
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoSell or getgenv().AutoSellDirty then
             pcall(function()
-                if LocalPlayer.NonSaveVars.BackpackAmount.Value > 0 then
-                    local isClean = (LocalPlayer.NonSaveVars.BasketStatus.Value == "Clean")
+                local amount, maxAmount, basketStatus = GetBackpackStatus()
+                if amount > 0 then
+                    local isClean = (basketStatus == "Clean")
                     local dumpDirty = false
                     local shouldSell = false
                     
                     if isClean then
-                        if LocalPlayer.NonSaveVars.BackpackAmount.Value >= LocalPlayer.NonSaveVars.BasketSize.Value then
+                        if getgenv().ActionState == "Emptying" then
                             shouldSell = true
                         else
                             local plot = GetMyPlot()
@@ -448,20 +541,14 @@ task.spawn(function()
                     else
                         if getgenv().AutoSellDirty then
                             dumpDirty = true
+                            DebugLog("AutoSell: ขายเป็นผ้าสกปรก (เพราะตั้งค่า AutoSellDirty = true)")
                         else
-                            local plot = GetMyPlot()
-                            if plot and plot:FindFirstChild("WashingMachines") then
-                                for _, machine in ipairs(plot.WashingMachines:GetChildren()) do
-                                    if machine:FindFirstChild("Config") and machine.Config.CycleFinished.Value then
-                                        dumpDirty = true
-                                        break
-                                    end
-                                end
-                            end
+                            DebugLog("AutoSell: กระเป๋ามีผ้าสกปรกอยู่ จะไม่บินไปขาย (รอเครื่องซักผ้า)")
                         end
                     end
                     
                     if (isClean and shouldSell) or dumpDirty then
+                        DebugLog("AutoSell: กำลังบินไปขายผ้า")
                         getgenv().IsSelling = true
                         local char = LocalPlayer.Character
                         local chute = workspace:FindFirstChild("_FinishChute")
@@ -497,7 +584,7 @@ end)
 
 -- // Auto Spin Wheel
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoSpin then
             pcall(function()
                 local wheel = workspace.Debris.NPCVehicles:FindFirstChild("SpinTheWheel")
@@ -515,7 +602,7 @@ end)
 
 -- // Auto Buy Washing Machine
 task.spawn(function()
-    while task.wait(3) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoBuyMachine then
             pcall(function()
                 local maxID = 1
@@ -555,7 +642,7 @@ end)
 -- // Auto Equip Best Machine
 local lastEquipConfig = ""
 task.spawn(function()
-    while task.wait(5) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoEquipMachine then
             pcall(function()
                 local availableMachines = {}
@@ -601,7 +688,7 @@ end)
 
 -- // Auto Buy Basket
 task.spawn(function()
-    while task.wait(3) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoBuyBasket then
             pcall(function()
                 local maxID = 1
@@ -644,7 +731,7 @@ end)
 
 -- // Auto Claim Challenges
 task.spawn(function()
-    while task.wait(5) do
+    while task.wait() do if not getgenv().LaundryFarmRunning then break end
         if getgenv().AutoChallenge then
             pcall(function()
                 local ChallengesData = require(game:GetService("ReplicatedStorage").Modules.Challenges)
